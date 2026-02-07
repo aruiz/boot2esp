@@ -1,5 +1,8 @@
 ; FAT32 Bootloader - Loads BLDR file from EFI partition
 ; Assemble with: nasm -f bin -o main.bin main.S
+;
+; Error codes (prints "E" + digit): E1=no EFI partition, E2=no FAT32,
+; E3=no BLDR file, E4=no DAP support (BIOS), E5=read error.
 
 [BITS 16]
 [ORG 0x7C00]
@@ -17,6 +20,15 @@ start:
 
     ; Save boot drive
     mov [boot_drive], dl
+
+    ; Check INT 13h extended read (DAP) support
+    mov ah, 0x41
+    mov bx, 0x55AA
+    mov dl, [boot_drive]
+    int 0x13
+    jc .no_dap
+    cmp bx, 0xAA55
+    jne .no_dap
 
     ; Initialize DAP structure at 0x0600
     mov di, DAP_ADDR
@@ -39,7 +51,10 @@ start:
     je .found_efi
     add si, 16
     loop .scan_partitions
-    mov al, '1'
+    mov al, '1'              ; No EFI partition
+    jmp die
+.no_dap:
+    mov al, '4'              ; No DAP support
     jmp die
 
 .found_efi:
@@ -47,6 +62,10 @@ start:
     mov eax, [si + 8]
     mov bx, 0x7E00
     call read_sector
+
+    ; Validate FAT32 boot sector signature
+    cmp word [0x7E00 + 0x1FE], 0xAA55
+    jne .no_fat32            ; E2 = No FAT32 filesystem
 
     ; Parse FAT32 BPB
     xor eax, eax
@@ -93,7 +112,10 @@ start:
     add di, 32
     loop .search_file
 .file_not_found:
-    mov al, '3'
+    mov al, '3'              ; E3 = No BLDR file
+    jmp die
+.no_fat32:
+    mov al, '2'              ; E2 = No FAT32 filesystem
     jmp die
 
 .found_file:
@@ -182,7 +204,7 @@ read_sector:
     popa
     ret
 .disk_error:
-    mov al, '4'
+    mov al, '5'              ; E5 = Read error (DAP failed)
 
 die:
     mov ah, 0x0E

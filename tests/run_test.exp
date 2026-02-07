@@ -1,0 +1,22 @@
+#!/usr/bin/expect -f
+# Run QEMU with curses, match VGA error code (E1..E5) with timeout.
+# Usage: run_test.exp <disk.img> <expected> e.g. run_test.exp no-ef.img E1
+set disk [lindex $argv 0]
+set expected [lindex $argv 1]
+set timeout 2
+spawn qemu-system-x86_64 -display curses -no-reboot -M q35 -drive file=$disk,format=raw
+expect {
+    -re {E([1-5])} {
+        set got "E$expect_out(1,string)"
+        if { $got eq $expected } {
+            exit 0
+        } else {
+            puts "Expected $expected, got $got"
+            exit 1
+        }
+    }
+    timeout {
+        puts "Timeout waiting for error code"
+        exit 1
+    }
+}
