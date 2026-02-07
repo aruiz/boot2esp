@@ -20,11 +20,9 @@ start:
 
     ; Initialize DAP structure at 0x0600
     mov di, DAP_ADDR
-    mov al, 0x10
-    stosb
-    xor al, al
-    stosb
-    mov ax, 1
+    mov ax, 0x0010            ; AH=0 (reserved), AL=0x10 (size)
+    stosw
+    mov al, 1                 ; AH still 0, AX=1 (sector count)
     stosw
     xor ax, ax
     stosw
@@ -45,18 +43,15 @@ start:
     jmp die
 
 .found_efi:
+    ; Read FAT32 boot sector (si+8 = partition LBA)
     mov eax, [si + 8]
-    mov [partition_lba], eax
-
-    ; Read FAT32 boot sector
-    mov eax, [partition_lba]
     mov bx, 0x7E00
     call read_sector
 
     ; Parse FAT32 BPB
+    xor eax, eax
     mov ax, [0x7E00 + 0x0E]
-    movzx eax, ax
-    add eax, [partition_lba]
+    add eax, [si + 8]
     mov [fat_start], eax
 
     movzx ecx, byte [0x7E00 + 0x10]
@@ -65,20 +60,18 @@ start:
     add eax, ebx
     mov [data_start], eax
 
-    mov eax, [0x7E00 + 0x2C]
-    mov [root_cluster], eax
-    movzx eax, byte [0x7E00 + 0x0D]
+    mov al, [0x7E00 + 0x0D]
     mov [sectors_per_cluster], al
 
     ; Read root directory
-    mov eax, [root_cluster]
+    mov eax, [0x7E00 + 0x2C]
     call cluster_to_lba
     mov bx, 0x7E00
     call read_sector
 
     ; Search for BLDR file
     mov di, 0x7E00
-    mov cx, 16
+    mov cl, 16
 
 .search_file:
     mov al, [di]
@@ -90,7 +83,7 @@ start:
     push di
     push cx
     mov si, filename
-    mov cx, 11
+    mov cl, 11
     repe cmpsb
     pop cx
     pop di
@@ -134,7 +127,7 @@ start:
     add bx, 512
     jnc .no_wrap
     mov dx, es
-    add dx, 0x1000
+    add dh, 0x10
     mov es, dx
     xor bx, bx
 .no_wrap:
@@ -154,7 +147,7 @@ start:
 cluster_to_lba:
     sub eax, 2
     movzx edx, byte [sectors_per_cluster]
-    imul eax, edx
+    mul edx
     add eax, [data_start]
     ret
 
@@ -165,12 +158,12 @@ get_next_cluster:
     push ax
     shr eax, 9
     add eax, [fat_start]
-    xor bx, bx
-    mov es, bx
+    push ds
+    pop es
     mov bx, 0x7E00
     call read_sector
     pop bx
-    and bx, 0x1FF
+    and bh, 1
     mov eax, [0x7E00 + bx]
     and eax, 0x0FFFFFFF
     pop es
@@ -190,14 +183,13 @@ read_sector:
     ret
 .disk_error:
     mov al, '4'
-    jmp die
 
 die:
-    mov bl, al
     mov ah, 0x0E
+    push ax
     mov al, 'E'
     int 0x10
-    mov al, bl
+    pop ax
     int 0x10
 
 halt:
@@ -209,10 +201,8 @@ halt:
 filename: db "BLDR       "
 
 boot_drive: db 0
-partition_lba: dd 0
 fat_start: dd 0
 data_start: dd 0
-root_cluster: dd 0
 file_cluster: dd 0
 sectors_per_cluster: db 0
 
