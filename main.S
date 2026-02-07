@@ -153,8 +153,8 @@ start:
 
 cluster_to_lba:
     sub eax, 2
-    movzx ebx, byte [sectors_per_cluster]
-    imul eax, ebx
+    movzx edx, byte [sectors_per_cluster]
+    imul eax, edx
     add eax, [data_start]
     ret
 
